@@ -112,7 +112,7 @@
                             <label class="block text-sm font-medium text-slate-300">符数 (Fu) <span class="text-xs text-slate-400 font-normal">— 5番及以上自动计满贯，无需选符</span></label>
                             <span id="fu-val-display" class="text-emerald-400 font-bold text-lg">30 符</span>
                         </div>
-                        <div class="grid grid-cols-5 gap-2" id="fu-buttons">
+                        <div class="grid grid-cols-6 gap-2" id="fu-buttons">
                             <button type="button" onclick="setFu(20)" id="fu-20" class="py-2.5 rounded-lg border text-sm font-medium transition-all bg-slate-700 text-slate-300 border-slate-600">20符</button>
                             <button type="button" onclick="setFu(25)" id="fu-25" class="py-2.5 rounded-lg border text-sm font-medium transition-all bg-slate-700 text-slate-300 border-slate-600">25符</button>
                             <button type="button" onclick="setFu(30)" id="fu-30" class="py-2.5 rounded-lg border text-sm font-medium transition-all bg-emerald-600 text-white border-emerald-500 shadow">30符</button>
@@ -122,6 +122,7 @@
                             <button type="button" onclick="setFu(70)" id="fu-70" class="py-2.5 rounded-lg border text-sm font-medium transition-all bg-slate-700 text-slate-300 border-slate-600">70符</button>
                             <button type="button" onclick="setFu(80)" id="fu-80" class="py-2.5 rounded-lg border text-sm font-medium transition-all bg-slate-700 text-slate-300 border-slate-600">80符</button>
                             <button type="button" onclick="setFu(90)" id="fu-90" class="py-2.5 rounded-lg border text-sm font-medium transition-all bg-slate-700 text-slate-300 border-slate-600">90符</button>
+                            <button type="button" onclick="setFu(100)" id="fu-100" class="py-2.5 rounded-lg border text-sm font-medium transition-all bg-slate-700 text-slate-300 border-slate-600">100符</button>
                             <button type="button" onclick="setFu(110)" id="fu-110" class="py-2.5 rounded-lg border text-sm font-medium transition-all bg-slate-700 text-slate-300 border-slate-600">110符</button>
                         </div>
                     </div>
@@ -181,7 +182,7 @@
                     </div>
 
                     <div class="mt-6 pt-4 border-t border-slate-800 text-xs text-slate-400 text-center">
-                        按日本麻将标准竞技规则（含端庄四家及切り上げ满贯计算）
+                        按日本麻将标准竞技规则（含百位进位及4番40符/3番70符满贯封顶计算）
                     </div>
                 </div>
 
@@ -380,7 +381,8 @@
 
         function setFu(fuVal) {
             state.fu = fuVal;
-            [20, 25, 30, 40, 50, 60, 70, 80, 90, 110].forEach(f => {
+            document.getElementById('fu-val-display').innerText = fuVal + ' 符';
+            [20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110].forEach(f => {
                 const btn = document.getElementById(`fu-${f}`);
                 if (btn) {
                     btn.className = f === fuVal ? 
@@ -428,20 +430,43 @@
             document.getElementById('score-main-value').innerText = scoreResult.mainText;
             document.getElementById('score-sub-value').innerText = scoreResult.subText;
             document.getElementById('detail-summary').innerText = `${state.han}番 ${state.han >= 5 ? '满贯+' : state.fu + '符'}`;
-            document.getElementById('detail-honba').innerText = `+${state.honba * 300}点 (${state.honba}本场)`;
+            const honbaAdd = state.winType === 'ron' ? state.honba * 300 : state.honba * 100 * 3;
+            document.getElementById('detail-honba').innerText = `+${honbaAdd}点 (${state.honba}本场)`;
             document.getElementById('detail-tier').innerText = scoreResult.tierName;
             document.getElementById('result-tier-badge').innerText = scoreResult.tierName;
         }
 
         function calculateMahjongScore(role, winType, han, fu, honba) {
-            // Basic Points Formula: fu * 2^(2 + han)
-            // Caps: Mangan (>=2000 base), Haneman (3000), Baiman (4000), Sanbaiman (6000), Yakuman (8000 per)
+            // 1. 合法性提示：不存在的番符组合
+            if (han === 1 && (fu === 20 || fu === 25)) {
+                return {
+                    mainText: "无此牌型",
+                    subText: fu === 20 ? "(20符仅限门清平和自摸，最低2番)" : "(七对子固定25符，最低2番)",
+                    tierName: "无效组合"
+                };
+            }
+            if (winType === 'ron' && fu === 20) {
+                return {
+                    mainText: "无此牌型",
+                    subText: "(荣和最低为 25符[七对] 或 30符)",
+                    tierName: "无效组合"
+                };
+            }
+            if (winType === 'tsumo' && fu === 110 && han === 1) {
+                return {
+                    mainText: "无此牌型",
+                    subText: "(110符自摸不存在1番牌型)",
+                    tierName: "无效组合"
+                };
+            }
+
+            // 2. 计算基本点 (Base Points = Fu * 2^(Han + 2))
             let basePoints = 0;
             let tierName = "普通和牌";
 
             if (han >= 13) {
                 basePoints = 8000;
-                tierName = "役满 (Yakuman)";
+                tierName = "累计役满 (13+番)";
             } else if (han >= 11) {
                 basePoints = 6000;
                 tierName = "三倍满 (Sanbaiman)";
@@ -456,126 +481,57 @@
                 tierName = "满贯 (Mangan)";
             } else {
                 basePoints = fu * Math.pow(2, han + 2);
-                // Check if exceeds mangan limit for 4 han / 3 han
-                if (basePoints > 2000) basePoints = 2000;
-                tierName = `${han}番 ${fu}符`;
+                if (basePoints >= 2000) {
+                    basePoints = 2000;
+                    tierName = "满贯 (Mangan)";
+                } else {
+                    tierName = `${han}番 ${fu}符`;
+                }
             }
+
+            // 向上进位至整百辅助函数
+            const ceil100 = (val) => Math.ceil(val / 100) * 100;
 
             let mainText = "";
             let subText = "";
             let honbaRon = honba * 300;
             let honbaTsumoPerPerson = honba * 100;
 
+            // 3. 根据身份与和牌方式分配点数
             if (role === 'child') {
                 if (winType === 'ron') {
-                    // Child Ron: basePoints * 4, rounded up to nearest 100
-                    let rawTotal = basePoints * 4;
-                    if (han < 5) {
-                        rawTotal = Math.ceil((basePoints * 4) / 100) * 100;
-                        // Special case checks for non-mangan rounding
-                        if (han === 1 && fu === 30) rawTotal = 1500;
-                        if (han === 1 && fu === 40) rawTotal = 2000;
-                        if (han === 1 && fu === 50) rawTotal = 2000;
-                        if (han === 1 && fu === 60) rawTotal = 2300;
-                        if (han === 1 && fu === 70) rawTotal = 2600;
-                        if (han === 1 && fu === 80) rawTotal = 2900;
-                        if (han === 1 && fu === 90) rawTotal = 3200;
-                        if (han === 1 && fu === 110) rawTotal = 3900;
-                        if (han === 2 && fu === 30) rawTotal = 2900;
-                        if (han === 2 && fu === 40) rawTotal = 3900;
-                        if (han === 2 && fu === 50) rawTotal = 4800;
-                        if (han === 2 && fu === 60) rawTotal = 5800;
-                        if (han === 2 && fu === 70) rawTotal = 6800;
-                        if (han === 3 && fu === 30) rawTotal = 5800;
-                        if (han === 3 && fu === 40) rawTotal = 7700;
-                        if (han === 4 && fu === 30) rawTotal = 11600;
-                    } else if (han === 5) rawTotal = 8000;
-                    else if (han >= 6 && han <= 7) rawTotal = 12000;
-                    else if (han >= 8 && han <= 10) rawTotal = 16000;
-                    else if (han >= 11 && han <= 12) rawTotal = 24000;
-                    else if (han >= 13) rawTotal = 32000 * Math.floor(han/13);
-
+                    // 子家荣和：基本点 * 4，百位进位
+                    let rawTotal = ceil100(basePoints * 4);
                     let finalRon = rawTotal + honbaRon;
                     mainText = `${finalRon.toLocaleString()} 点`;
-                    subText = `(荣和：支付 ${finalRon} 点，含本场 ${honbaRon}点)`;
+                    subText = honba > 0 ? `(出铳者支付 ${rawTotal} + ${honbaRon}本场)` : `(出铳者支付 ${finalRon} 点)`;
                 } else {
-                    // Child Tsumo: Dealer pays 2x, other two children pay 1x (base * 2 and base * 1)
-                    let rawChildPay = Math.ceil(basePoints / 100) * 100;
-                    let rawDealerPay = Math.ceil(basePoints * 2 / 100) * 100;
-
-                    if (han < 5) {
-                        if (han === 1 && fu === 30) { rawChildPay = 300; rawDealerPay = 500; }
-                        if (han === 1 && fu === 40) { rawChildPay = 400; rawDealerPay = 700; }
-                        if (han === 1 && fu === 50) { rawChildPay = 400; rawDealerPay = 800; }
-                        if (han === 1 && fu === 60) { rawChildPay = 500; rawDealerPay = 1000; }
-                        if (han === 1 && fu === 70) { rawChildPay = 600; rawDealerPay = 1100; }
-                        if (han === 1 && fu === 20) { rawChildPay = 300; rawDealerPay = 400; } // pii tsumo
-                        if (han === 2 && fu === 30) { rawChildPay = 700; rawDealerPay = 1300; }
-                        if (han === 2 && fu === 40) { rawChildPay = 1000; rawDealerPay = 2000; }
-                        if (han === 3 && fu === 30) { rawChildPay = 1300; rawDealerPay = 2600; }
-                        if (han === 3 && fu === 40) { rawChildPay = 2000; rawDealerPay = 3900; }
-                    } else if (han === 5) { rawChildPay = 2000; rawDealerPay = 4000; }
-                    else if (han >= 6 && han <= 7) { rawChildPay = 3000; rawDealerPay = 6000; }
-                    else if (han >= 8 && han <= 10) { rawChildPay = 4000; rawDealerPay = 8000; }
-                    else if (han >= 11 && han <= 12) { rawChildPay = 6000; rawDealerPay = 12000; }
-                    else if (han >= 13) { rawChildPay = 8000; rawDealerPay = 16000; }
-
+                    // 子家自摸：两家子各付 基本点*1，亲家付 基本点*2，各自百位进位
+                    let rawChildPay = ceil100(basePoints * 1);
+                    let rawDealerPay = ceil100(basePoints * 2);
                     let finalChildPay = rawChildPay + honbaTsumoPerPerson;
                     let finalDealerPay = rawDealerPay + honbaTsumoPerPerson;
                     let totalSum = finalChildPay * 2 + finalDealerPay;
 
                     mainText = `${totalSum.toLocaleString()} 点`;
-                    subText = `(自摸：子各付 ${finalChildPay}，亲付 ${finalDealerPay})`;
+                    subText = `(子家各付 ${finalChildPay} / 亲家付 ${finalDealerPay})`;
                 }
             } else {
-                // Dealer role
+                // 亲家 (庄家)
                 if (winType === 'ron') {
-                    let rawTotal = basePoints * 6;
-                    if (han < 5) {
-                        rawTotal = Math.ceil((basePoints * 6) / 100) * 100;
-                        if (han === 1 && fu === 30) rawTotal = 2400;
-                        if (han === 1 && fu === 40) rawTotal = 2900;
-                        if (han === 1 && fu === 50) rawTotal = 3600;
-                        if (han === 1 && fu === 60) rawTotal = 3900;
-                        if (han === 1 && fu === 70) rawTotal = 4500;
-                        if (han === 2 && fu === 30) rawTotal = 4800;
-                        if (han === 2 && fu === 40) rawTotal = 5800;
-                        if (han === 2 && fu === 50) rawTotal = 7100;
-                        if (han === 3 && fu === 30) rawTotal = 8500;
-                        if (han === 3 && fu === 40) rawTotal = 11600;
-                    } else if (han === 5) rawTotal = 12000;
-                    else if (han >= 6 && han <= 7) rawTotal = 18000;
-                    else if (han >= 8 && han <= 10) rawTotal = 24000;
-                    else if (han >= 11 && han <= 12) rawTotal = 36000;
-                    else if (han >= 13) rawTotal = 48000;
-
+                    // 亲家荣和：基本点 * 6，百位进位
+                    let rawTotal = ceil100(basePoints * 6);
                     let finalRon = rawTotal + honbaRon;
                     mainText = `${finalRon.toLocaleString()} 点`;
-                    subText = `(亲家荣和：支付 ${finalRon} 点，含本场 ${honbaRon}点)`;
+                    subText = honba > 0 ? `(出铳者支付 ${rawTotal} + ${honbaRon}本场)` : `(出铳者支付 ${finalRon} 点)`;
                 } else {
-                    // Dealer Tsumo: all three children pay equal amounts (base * 2 each)
-                    let rawPerChildPay = Math.ceil(basePoints * 2 / 100) * 100;
-                    if (han < 5) {
-                        if (han === 1 && fu === 30) rawPerChildPay = 500;
-                        if (han === 1 && fu === 40) rawPerChildPay = 700;
-                        if (han === 1 && fu === 50) rawPerChildPay = 800;
-                        if (han === 1 && fu === 60) rawPerChildPay = 1000;
-                        if (han === 1 && fu === 70) rawPerChildPay = 1200;
-                        if (han === 2 && fu === 30) rawPerChildPay = 1000;
-                        if (han === 2 && fu === 40) rawPerChildPay = 1500;
-                        if (han === 3 && fu === 30) rawPerChildPay = 2000;
-                        if (han === 3 && fu === 40) rawPerChildPay = 2900;
-                    } else if (han === 5) rawPerChildPay = 4000;
-                    else if (han >= 6 && han <= 7) rawPerChildPay = 6000;
-                    else if (han >= 8 && han <= 10) rawPerChildPay = 8000;
-                    else if (han >= 11 && han <= 12) rawPerChildPay = 12000;
-                    else if (han >= 13) rawPerChildPay = 16000;
-
+                    // 亲家自摸：三家子各付 基本点*2，百位进位
+                    let rawPerChildPay = ceil100(basePoints * 2);
                     let finalPerChild = rawPerChildPay + honbaTsumoPerPerson;
                     let totalSum = finalPerChild * 3;
 
                     mainText = `${totalSum.toLocaleString()} 点`;
-                    subText = `(亲家自摸：每人各付 ${finalPerChild} 点)`;
+                    subText = `(三家子家各付 ${finalPerChild} 点)`;
                 }
             }
 
